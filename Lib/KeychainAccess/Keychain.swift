@@ -105,8 +105,12 @@ public enum Accessibility {
      regardless of the lock state of the device. This is not recommended
      for anything except system use. Items with this attribute will migrate
      to a new device when using encrypted backups.
+     
+     - Warning: Deprecated in iOS 12.0. Use `afterFirstUnlock` instead.
      */
     @available(macCatalyst, unavailable)
+    @available(iOS, deprecated: 12.0, message: "Use afterFirstUnlock instead")
+    @available(macOS, deprecated: 10.14, message: "Use afterFirstUnlock instead")
     case always
 
     /**
@@ -148,17 +152,19 @@ public enum Accessibility {
      is not recommended for anything except system use. Items with this
      attribute will never migrate to a new device, so after a backup is
      restored to a new device, these items will be missing.
+     
+     - Warning: Deprecated in iOS 12.0. Use `afterFirstUnlockThisDeviceOnly` instead.
      */
     @available(macCatalyst, unavailable)
+    @available(iOS, deprecated: 12.0, message: "Use afterFirstUnlockThisDeviceOnly instead")
+    @available(macOS, deprecated: 10.14, message: "Use afterFirstUnlockThisDeviceOnly instead")
     case alwaysThisDeviceOnly
 }
 
 /**
- Predefined item attribute constants used to get or set values
- in a dictionary. The kSecUseAuthenticationUI constant is the key and its
- value is one of the constants defined here.
- If the key kSecUseAuthenticationUI not provided then kSecUseAuthenticationUIAllow
- is used as default.
+ Controls the authentication UI behavior when accessing keychain items.
+ These options configure the LAContext.interactionNotAllowed property
+ when performing keychain operations.
  */
 public enum AuthenticationUI {
     /**
@@ -181,16 +187,15 @@ public enum AuthenticationUI {
     case skip
 }
 
-@available(iOS 9.0, macOS 10.11, *)
+#if os(iOS) || os(macOS)
 extension AuthenticationUI {
-    public var rawValue: String {
+    /// Configures the LAContext based on the authentication UI setting
+    func configure(_ context: LAContext) {
         switch self {
         case .allow:
-            return UseAuthenticationUIAllow
-        case .fail:
-            return UseAuthenticationUIFail
-        case .skip:
-            return UseAuthenticationUISkip
+            context.interactionNotAllowed = false
+        case .fail, .skip:
+            context.interactionNotAllowed = true
         }
     }
 
@@ -205,6 +210,7 @@ extension AuthenticationUI {
         }
     }
 }
+#endif
 
 public struct AuthenticationPolicy: OptionSet {
     /**
@@ -666,29 +672,18 @@ public final class Keychain {
     public func set(_ value: Data, key: String, ignoringAttributeSynchronizable: Bool = true) throws {
         var query = options.query(ignoringAttributeSynchronizable: ignoringAttributeSynchronizable)
         query[AttributeAccount] = key
-        #if os(iOS)
-        if #available(iOS 9.0, *) {
-            if let authenticationUI = options.authenticationUI {
-                query[UseAuthenticationUI] = authenticationUI.rawValue
-            } else {
-                query[UseAuthenticationUI] = UseAuthenticationUIFail
-            }
-        } else {
-            query[UseNoAuthenticationUI] = kCFBooleanTrue
-        }
-        #elseif os(macOS)
-        query[ReturnData] = kCFBooleanTrue
-        if #available(macOS 10.11, *) {
-            if let authenticationUI = options.authenticationUI {
-                query[UseAuthenticationUI] = authenticationUI.rawValue
-            } else {
-                query[UseAuthenticationUI] = UseAuthenticationUIFail
-            }
-        }
-        #else
+        #if os(iOS) || os(macOS)
+        // Use LAContext with interactionNotAllowed instead of deprecated kSecUseAuthenticationUI
+        let context = (options.authenticationContext as? LAContext) ?? LAContext()
         if let authenticationUI = options.authenticationUI {
-            query[UseAuthenticationUI] = authenticationUI.rawValue
+            authenticationUI.configure(context)
+        } else {
+            context.interactionNotAllowed = true
         }
+        query[UseAuthenticationContext] = context
+        #if os(macOS)
+        query[ReturnData] = kCFBooleanTrue
+        #endif
         #endif
 
         var status = SecItemCopyMatching(query as CFDictionary, nil)
@@ -833,35 +828,23 @@ public final class Keychain {
         var query = options.query()
         query[AttributeAccount] = key
 
+        #if os(iOS) || os(macOS)
+        // Use LAContext with interactionNotAllowed instead of deprecated kSecUseAuthenticationUI
+        let context = (options.authenticationContext as? LAContext) ?? LAContext()
         if withoutAuthenticationUI {
-            #if os(iOS) || os(watchOS) || os(tvOS)
-            if #available(iOS 9.0, *) {
-                if let authenticationUI = options.authenticationUI {
-                    query[UseAuthenticationUI] = authenticationUI.rawValue
-                } else {
-                    query[UseAuthenticationUI] = UseAuthenticationUIFail
-                }
+            if let authenticationUI = options.authenticationUI {
+                authenticationUI.configure(context)
             } else {
-                query[UseNoAuthenticationUI] = kCFBooleanTrue
+                context.interactionNotAllowed = true
             }
-            #else
-            if #available(macOS 10.11, *) {
-                if let authenticationUI = options.authenticationUI {
-                    query[UseAuthenticationUI] = authenticationUI.rawValue
-                } else {
-                    query[UseAuthenticationUI] = UseAuthenticationUIFail
-                }
-            } else if #available(macOS 10.10, *) {
-                query[UseNoAuthenticationUI] = kCFBooleanTrue
-            }
-            #endif
+            query[UseAuthenticationContext] = context
         } else {
-            if #available(iOS 9.0, macOS 10.11, *) {
-                if let authenticationUI = options.authenticationUI {
-                    query[UseAuthenticationUI] = authenticationUI.rawValue
-                }
+            if let authenticationUI = options.authenticationUI {
+                authenticationUI.configure(context)
+                query[UseAuthenticationContext] = context
             }
         }
+        #endif
         
         let status = SecItemCopyMatching(query as CFDictionary, nil)
         switch status {
@@ -954,7 +937,7 @@ public final class Keychain {
     }
 
     #if os(iOS) && !targetEnvironment(macCatalyst)
-    @available(iOS 8.0, *)
+    @available(iOS, introduced: 8.0, deprecated: 14.0, message: "Use ASAuthorizationController with ASAuthorizationPasswordRequest (AuthenticationServices framework)")
     public func getSharedPassword(_ completion: @escaping (_ account: String?, _ password: String?, _ error: Error?) -> () = { account, password, error -> () in }) {
         if let domain = server.host {
             type(of: self).requestSharedWebCredential(domain: domain, account: nil) { (credentials, error) -> () in
@@ -974,7 +957,7 @@ public final class Keychain {
     #endif
 
     #if os(iOS) && !targetEnvironment(macCatalyst)
-    @available(iOS 8.0, *)
+    @available(iOS, introduced: 8.0, deprecated: 14.0, message: "Use ASAuthorizationController with ASAuthorizationPasswordRequest (AuthenticationServices framework)")
     public func getSharedPassword(_ account: String, completion: @escaping (_ password: String?, _ error: Error?) -> () = { password, error -> () in }) {
         if let domain = server.host {
             type(of: self).requestSharedWebCredential(domain: domain, account: account) { (credentials, error) -> () in
@@ -1028,28 +1011,28 @@ public final class Keychain {
     #endif
 
     #if os(iOS) && !targetEnvironment(macCatalyst)
-    @available(iOS 8.0, *)
+    @available(iOS, introduced: 8.0, deprecated: 14.0, message: "Use ASAuthorizationController with ASAuthorizationPasswordRequest (AuthenticationServices framework)")
     public class func requestSharedWebCredential(_ completion: @escaping (_ credentials: [[String: String]], _ error: Error?) -> () = { credentials, error -> () in }) {
         requestSharedWebCredential(domain: nil, account: nil, completion: completion)
     }
     #endif
 
     #if os(iOS) && !targetEnvironment(macCatalyst)
-    @available(iOS 8.0, *)
+    @available(iOS, introduced: 8.0, deprecated: 14.0, message: "Use ASAuthorizationController with ASAuthorizationPasswordRequest (AuthenticationServices framework)")
     public class func requestSharedWebCredential(domain: String, completion: @escaping (_ credentials: [[String: String]], _ error: Error?) -> () = { credentials, error -> () in }) {
         requestSharedWebCredential(domain: domain, account: nil, completion: completion)
     }
     #endif
 
     #if os(iOS) && !targetEnvironment(macCatalyst)
-    @available(iOS 8.0, *)
+    @available(iOS, introduced: 8.0, deprecated: 14.0, message: "Use ASAuthorizationController with ASAuthorizationPasswordRequest (AuthenticationServices framework)")
     public class func requestSharedWebCredential(domain: String, account: String, completion: @escaping (_ credentials: [[String: String]], _ error: Error?) -> () = { credentials, error -> () in }) {
         requestSharedWebCredential(domain: Optional(domain), account: Optional(account)!, completion: completion)
     }
     #endif
 
     #if os(iOS) && !targetEnvironment(macCatalyst)
-    @available(iOS 8.0, *)
+    @available(iOS, deprecated: 14.0)
     fileprivate class func requestSharedWebCredential(domain: String?, account: String?, completion: @escaping (_ credentials: [[String: String]], _ error: Error?) -> ()) {
         SecRequestSharedWebCredential(domain as CFString?, account as CFString?) { (credentials, error) -> () in
             var remoteError: NSError?
@@ -1269,29 +1252,7 @@ private let ValueRef = String(kSecValueRef)
 private let ValuePersistentRef = String(kSecValuePersistentRef)
 
 /** Other Constants */
-@available(iOS 8.0, macOS 10.10, tvOS 8.0, *)
-private let UseOperationPrompt = String(kSecUseOperationPrompt)
-
-@available(iOS, introduced: 8.0, deprecated: 9.0, message: "Use a UseAuthenticationUI instead.")
-@available(macOS, introduced: 10.10, deprecated: 10.11, message: "Use UseAuthenticationUI instead.")
-@available(watchOS, introduced: 2.0, deprecated: 2.0, message: "Use UseAuthenticationUI instead.")
-@available(tvOS, introduced: 8.0, deprecated: 9.0, message: "Use UseAuthenticationUI instead.")
-private let UseNoAuthenticationUI = String(kSecUseNoAuthenticationUI)
-
-@available(iOS 9.0, macOS 10.11, watchOS 2.0, tvOS 9.0, *)
-private let UseAuthenticationUI = String(kSecUseAuthenticationUI)
-
-@available(iOS 9.0, macOS 10.11, watchOS 2.0, tvOS 9.0, *)
 private let UseAuthenticationContext = String(kSecUseAuthenticationContext)
-
-@available(iOS 9.0, macOS 10.11, watchOS 2.0, tvOS 9.0, *)
-private let UseAuthenticationUIAllow = String(kSecUseAuthenticationUIAllow)
-
-@available(iOS 9.0, macOS 10.11, watchOS 2.0, tvOS 9.0, *)
-private let UseAuthenticationUIFail = String(kSecUseAuthenticationUIFail)
-
-@available(iOS 9.0, macOS 10.11, watchOS 2.0, tvOS 9.0, *)
-private let UseAuthenticationUISkip = String(kSecUseAuthenticationUISkip)
 
 #if os(iOS) && !targetEnvironment(macCatalyst)
 /** Credential Key Constants */
@@ -1342,17 +1303,14 @@ extension Options {
             query[AttributeAuthenticationType] = authenticationType.rawValue
         }
 
-        if #available(macOS 10.10, *) {
-            if authenticationPrompt != nil {
-                query[UseOperationPrompt] = authenticationPrompt
+        #if os(iOS) || os(macOS)
+        // Use LAContext with localizedReason instead of deprecated kSecUseOperationPrompt
+        if authenticationPrompt != nil || authenticationContext != nil {
+            let context = (authenticationContext as? LAContext) ?? LAContext()
+            if let prompt = authenticationPrompt {
+                context.localizedReason = prompt
             }
-        }
-
-        #if !os(watchOS)
-        if #available(iOS 9.0, macOS 10.11, *) {
-            if authenticationContext != nil {
-                query[UseAuthenticationContext] = authenticationContext
-            }
+            query[UseAuthenticationContext] = context
         }
         #endif
 
@@ -1717,92 +1675,123 @@ extension AuthenticationType: RawRepresentable, CustomStringConvertible {
     }
 }
 
+// Helper to get deprecated kSecAttrAccessibleAlways value (silences deprecation warning at usage site)
+#if !targetEnvironment(macCatalyst)
+@available(iOS, deprecated: 12.0, message: "Use kSecAttrAccessibleAfterFirstUnlock instead")
+@available(macOS, deprecated: 10.14, message: "Use kSecAttrAccessibleAfterFirstUnlock instead")
+private func accessibleAlwaysValue() -> String {
+    return String(kSecAttrAccessibleAlways)
+}
+
+@available(iOS, deprecated: 12.0, message: "Use kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly instead")
+@available(macOS, deprecated: 10.14, message: "Use kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly instead")
+private func accessibleAlwaysThisDeviceOnlyValue() -> String {
+    return String(kSecAttrAccessibleAlwaysThisDeviceOnly)
+}
+
+@available(iOS, deprecated: 12.0)
+@available(macOS, deprecated: 10.14)
+private func makeAccessibilityAlways() -> Accessibility {
+    return .always
+}
+
+@available(iOS, deprecated: 12.0)
+@available(macOS, deprecated: 10.14)
+private func makeAccessibilityAlwaysThisDeviceOnly() -> Accessibility {
+    return .alwaysThisDeviceOnly
+}
+
+@available(iOS, deprecated: 12.0)
+@available(macOS, deprecated: 10.14)
+private func isAccessibilityAlways(_ accessibility: Accessibility) -> Bool {
+    if case .always = accessibility { return true }
+    return false
+}
+
+@available(iOS, deprecated: 12.0)
+@available(macOS, deprecated: 10.14)
+private func isAccessibilityAlwaysThisDeviceOnly(_ accessibility: Accessibility) -> Bool {
+    if case .alwaysThisDeviceOnly = accessibility { return true }
+    return false
+}
+#endif
+
 extension Accessibility: RawRepresentable, CustomStringConvertible {
     public init?(rawValue: String) {
-        if #available(macOS 10.10, *) {
-            switch rawValue {
-            case String(kSecAttrAccessibleWhenUnlocked):
-                self = .whenUnlocked
-            case String(kSecAttrAccessibleAfterFirstUnlock):
-                self = .afterFirstUnlock
-            #if !targetEnvironment(macCatalyst)
-            case String(kSecAttrAccessibleAlways):
-                self = .always
-            #endif
-            case String(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly):
-                self = .whenPasscodeSetThisDeviceOnly
-            case String(kSecAttrAccessibleWhenUnlockedThisDeviceOnly):
-                self = .whenUnlockedThisDeviceOnly
-            case String(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly):
-                self = .afterFirstUnlockThisDeviceOnly
-            #if !targetEnvironment(macCatalyst)
-            case String(kSecAttrAccessibleAlwaysThisDeviceOnly):
-                self = .alwaysThisDeviceOnly
-            #endif
-            default:
-                return nil
-            }
-        } else {
-            switch rawValue {
-            case String(kSecAttrAccessibleWhenUnlocked):
-                self = .whenUnlocked
-            case String(kSecAttrAccessibleAfterFirstUnlock):
-                self = .afterFirstUnlock
-            #if !targetEnvironment(macCatalyst)
-            case String(kSecAttrAccessibleAlways):
-                self = .always
-            #endif
-            case String(kSecAttrAccessibleWhenUnlockedThisDeviceOnly):
-                self = .whenUnlockedThisDeviceOnly
-            case String(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly):
-                self = .afterFirstUnlockThisDeviceOnly
-            #if !targetEnvironment(macCatalyst)
-            case String(kSecAttrAccessibleAlwaysThisDeviceOnly):
-                self = .alwaysThisDeviceOnly
-            #endif
-            default:
-                return nil
-            }
+        // Handle deprecated values first (backwards compatibility for existing keychain items)
+        #if !targetEnvironment(macCatalyst)
+        if rawValue == accessibleAlwaysValue() {
+            self = makeAccessibilityAlways()
+            return
+        }
+        if rawValue == accessibleAlwaysThisDeviceOnlyValue() {
+            self = makeAccessibilityAlwaysThisDeviceOnly()
+            return
+        }
+        #endif
+        
+        switch rawValue {
+        case String(kSecAttrAccessibleWhenUnlocked):
+            self = .whenUnlocked
+        case String(kSecAttrAccessibleAfterFirstUnlock):
+            self = .afterFirstUnlock
+        case String(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly):
+            self = .whenPasscodeSetThisDeviceOnly
+        case String(kSecAttrAccessibleWhenUnlockedThisDeviceOnly):
+            self = .whenUnlockedThisDeviceOnly
+        case String(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly):
+            self = .afterFirstUnlockThisDeviceOnly
+        default:
+            return nil
         }
     }
 
     public var rawValue: String {
+        #if !targetEnvironment(macCatalyst)
+        // Handle deprecated cases first
+        if isAccessibilityAlways(self) {
+            return accessibleAlwaysValue()
+        }
+        if isAccessibilityAlwaysThisDeviceOnly(self) {
+            return accessibleAlwaysThisDeviceOnlyValue()
+        }
+        #endif
+        
         switch self {
         case .whenUnlocked:
             return String(kSecAttrAccessibleWhenUnlocked)
         case .afterFirstUnlock:
             return String(kSecAttrAccessibleAfterFirstUnlock)
-        #if !targetEnvironment(macCatalyst)
-        case .always:
-            return String(kSecAttrAccessibleAlways)
-        #endif
         case .whenPasscodeSetThisDeviceOnly:
-            if #available(macOS 10.10, *) {
-                return String(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly)
-            } else {
-                fatalError("'Accessibility.WhenPasscodeSetThisDeviceOnly' is not available on this version of OS.")
-            }
+            return String(kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly)
         case .whenUnlockedThisDeviceOnly:
             return String(kSecAttrAccessibleWhenUnlockedThisDeviceOnly)
         case .afterFirstUnlockThisDeviceOnly:
             return String(kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
         #if !targetEnvironment(macCatalyst)
-        case .alwaysThisDeviceOnly:
-            return String(kSecAttrAccessibleAlwaysThisDeviceOnly)
+        default:
+            // Deprecated cases (.always, .alwaysThisDeviceOnly) are handled above
+            fatalError("Unhandled Accessibility case")
         #endif
         }
     }
 
     public var description: String {
+        #if !targetEnvironment(macCatalyst)
+        // Handle deprecated cases first
+        if isAccessibilityAlways(self) {
+            return "Always"
+        }
+        if isAccessibilityAlwaysThisDeviceOnly(self) {
+            return "AlwaysThisDeviceOnly"
+        }
+        #endif
+        
         switch self {
         case .whenUnlocked:
             return "WhenUnlocked"
         case .afterFirstUnlock:
             return "AfterFirstUnlock"
-        #if !targetEnvironment(macCatalyst)
-        case .always:
-            return "Always"
-        #endif
         case .whenPasscodeSetThisDeviceOnly:
             return "WhenPasscodeSetThisDeviceOnly"
         case .whenUnlockedThisDeviceOnly:
@@ -1810,8 +1799,8 @@ extension Accessibility: RawRepresentable, CustomStringConvertible {
         case .afterFirstUnlockThisDeviceOnly:
             return "AfterFirstUnlockThisDeviceOnly"
         #if !targetEnvironment(macCatalyst)
-        case .alwaysThisDeviceOnly:
-            return "AlwaysThisDeviceOnly"
+        default:
+            fatalError("Unhandled Accessibility case")
         #endif
         }
     }

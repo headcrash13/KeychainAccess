@@ -28,8 +28,8 @@ Pod::Spec.new do |s|
 
   s.swift_version = '5.1'
 
-  s.ios.deployment_target = '9.0'
-  s.osx.deployment_target = '10.9'
-  s.watchos.deployment_target = '3.0'
-  s.tvos.deployment_target = '9.0'
+  s.ios.deployment_target = '17.6'
+  s.osx.deployment_target = '15.6'
+  s.watchos.deployment_target = '10.6'
+  s.tvos.deployment_target = '17.6'
 end
