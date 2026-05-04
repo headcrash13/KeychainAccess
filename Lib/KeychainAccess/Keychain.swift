@@ -218,7 +218,6 @@ public struct AuthenticationPolicy: OptionSet {
      have to be available or enrolled. Item is still accessible by Touch ID
      even if fingers are added or removed.
      */
-    @available(iOS 8.0, macOS 10.10, watchOS 2.0, tvOS 8.0, *)
     public static let userPresence = AuthenticationPolicy(rawValue: 1 << 0)
 
     /**
@@ -1771,7 +1770,8 @@ extension Accessibility: RawRepresentable, CustomStringConvertible {
         #if !targetEnvironment(macCatalyst)
         default:
             // Deprecated cases (.always, .alwaysThisDeviceOnly) are handled above
-            fatalError("Unhandled Accessibility case")
+            NSLog("🔥🔥🔥 Unhandled Accessibility case 🔥🔥🔥")
+                return ""
         #endif
         }
     }
@@ -1800,7 +1800,8 @@ extension Accessibility: RawRepresentable, CustomStringConvertible {
             return "AfterFirstUnlockThisDeviceOnly"
         #if !targetEnvironment(macCatalyst)
         default:
-            fatalError("Unhandled Accessibility case")
+            NSLog("🔥🔥🔥 Unhandled Accessibility case 🔥🔥🔥")
+                return ""
         #endif
         }
     }

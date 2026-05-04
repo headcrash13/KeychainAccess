@@ -49,7 +49,7 @@ class InputViewController: UITableViewController {
     // MARK:
 
     @IBAction func cancelAction(sender: UIBarButtonItem) {
-        dismiss(animated: true, completion: nil)
+        dismiss(animated: !UIAccessibility.isReduceMotionEnabled, completion: nil)
     }
 
     @IBAction func saveAction(sender: UIBarButtonItem) {
@@ -61,7 +61,7 @@ class InputViewController: UITableViewController {
         }
         keychain[usernameField.text!] = passwordField.text
 
-        dismiss(animated: true, completion: nil)
+        dismiss(animated: !UIAccessibility.isReduceMotionEnabled, completion: nil)
     }
 
     @IBAction func editingChanged(sender: UITextField) {
